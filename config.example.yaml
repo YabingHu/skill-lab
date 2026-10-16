@@ -66,6 +66,12 @@ chat:
 
   # 故障注入预设：可组合 headers / body（合并到请求体）/ pod_cmd（提问前在 pod 内执行）/ cleanup_cmd（提问后执行）
   faults:
+    # 示例：仅模拟故障，不接触网络设备。provider 故障由独立引擎管理生命周期。
+    - name: mock_bgp_router_id_conflict
+      label: BGP Router-ID 冲突（模拟）
+      description: 在内存中模拟 BGP 故障，用于验证测试编排逻辑
+      provider: mock-bgp-router-id-conflict
+      parameters: {device: lab-node-a, peer: lab-node-b}
     - name: tool_timeout
       label: 工具调用超时
       description: 让环境模拟工具超时
