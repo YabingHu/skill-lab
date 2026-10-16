@@ -52,6 +52,20 @@ if "检查最近变更" not in content:
 d = wait(call("/deploy", {"skill": S, "pod_filter": "agent", "langs": ["zh", "en"]})["job_id"])
 check(d["status"] == "success", "发布到包含 agent 的 pod：" + d["logs"][-1])
 
+# 模拟有人直接改了环境上的 skill，再从环境拉回来
+import os
+from pathlib import Path
+mock_root = Path(os.environ.get("MOCK_ROOT", Path(__file__).resolve().parents[1] / "data" / "mock"))
+pod_skill = mock_root / "pods" / "agent-server-0" / "opt/agent/skills/zh" / S / "SKILL.md"
+pod_skill.write_text(pod_skill.read_text(encoding="utf-8") + "\n- 环境上临时加的一条注意事项\n", encoding="utf-8")
+job = wait(call("/skills/env-pull", {"pod": "agent-server-0", "skills": [S]})["job_id"])
+pulled = {x["name"]: x for x in (job.get("result") or {}).get("skills", [])}
+check(job["status"] == "success" and pulled.get(S, {}).get("status") == "changed",
+      f"从环境拉取 {S}：{job['logs'][-1]}")
+imp = call("/skills/env-pull/apply", {"pull_id": job["result"]["pull_id"], "skills": [S]})
+new_zh = call(f"/skills/{S}/file?lang=zh&path=SKILL.md")["content"]
+check("环境上临时加的一条注意事项" in new_zh, f"导入环境内容，生成 v{imp['imported'][0]['version']}")
+
 r1 = call("/chat/ask", {"endpoint": "mock-agent", "question": "order-svc 一直重启，帮我看看",
                          "faults": ["tool_timeout"], "headers": [{"key": "x-user", "value": "tester"}]})
 check(bool(r1["conversation_id"]), f"注入 tool_timeout 提问，conversation-id={r1['conversation_id']}")

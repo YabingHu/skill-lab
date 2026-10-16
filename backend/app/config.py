@@ -70,6 +70,9 @@ DEFAULTS: dict[str, Any] = {
         "post_cmd": "",
         # 并发发布的 pod 数
         "concurrency": 4,
+        # 从环境拉取 skill 时在 pod 内执行的命令，stdout 需要是 tar/tar.gz。
+        # 可用占位符：{remote_dir} {paths}（要拉取的相对路径列表，拉取全部时为 "."）
+        "fetch_cmd": "cd {remote_dir} && tar -czf - $(ls -d {paths} 2>/dev/null)",
     },
     "chat": {
         "endpoints": [

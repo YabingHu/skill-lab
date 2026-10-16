@@ -75,8 +75,9 @@ class SkillStore:
         return p
 
     # ------------------------------------------------------------------ 列表
-    def list_skills(self) -> list[dict]:
-        root = self.cfg.skills_root
+    def skill_names(self, root: Path | None = None) -> list[str]:
+        """按 layout 扫描 root（默认工作区）下的 skill 名称。"""
+        root = root or self.cfg.skills_root
         names: set[str] = set()
         parts = self.layout.split("/")
         if parts[0] == "{lang}":
@@ -91,6 +92,10 @@ class SkillStore:
                         (p / ld).is_dir() for ld in self.langs.values()
                     ):
                         names.add(p.name)
+        return sorted(names)
+
+    def list_skills(self) -> list[dict]:
+        names = self.skill_names()
         out = []
         for name in sorted(names):
             latest = self.latest_version(name)
@@ -120,6 +125,21 @@ class SkillStore:
         self.create_version(name, "新建 skill", source="import")
 
     # ------------------------------------------------------------------ 文件
+    def scan_dir(self, base: Path) -> dict[str, bytes]:
+        return self._scan(base)
+
+    def replace_lang_dir(self, skill: str, lang: str, files: dict[str, bytes]) -> None:
+        """用给定文件完整替换工作区中某个语言目录（多出的文件会删除）。"""
+        base = self.lang_dir(skill, lang)
+        for rel in self._scan(base):
+            if rel not in files:
+                self._safe_join(base, rel).unlink()
+        for rel, data in files.items():
+            p = self._safe_join(base, rel)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(data)
+        base.mkdir(parents=True, exist_ok=True)
+
     def _scan(self, base: Path) -> dict[str, bytes]:
         files: dict[str, bytes] = {}
         if not base.is_dir():
@@ -262,7 +282,7 @@ class SkillStore:
             "VALUES (?,?,?,?,?,?,?,?)",
             (skill, seq, message, source, author, latest["seq"] if latest else None, dumps(hashes), now()),
         )
-        if source == "import" and latest is None:
+        if source in ("import", "env-pull") and latest is None:
             # 首次导入视为中英文已对齐
             self.set_en_synced(skill, seq)
         return self.get_version(skill, seq)

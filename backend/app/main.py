@@ -21,6 +21,7 @@ from .services.analysis import AnalysisService
 from .services.chat import ChatService
 from .services.deploy import DeployService
 from .services.env import EnvService
+from .services.env_pull import EnvPullService
 from .services.llm import LLMClient, LLMError
 from .services.logs import LogService
 from .services.skills import SkillError, SkillStore
@@ -34,6 +35,7 @@ llm = LLMClient(cfg)
 sync = SyncService(store, llm)
 env = EnvService(cfg)
 deployer = DeployService(cfg, db, store, env)
+env_pull = EnvPullService(cfg, store, env)
 chat = ChatService(cfg, db, env)
 logs = LogService(cfg, db, env)
 analysis = AnalysisService(cfg, db, store, logs, deployer, llm)
@@ -97,6 +99,26 @@ def list_skills():
 def create_skill(body: dict = Body(...)):
     store.create_skill(body["name"].strip(), body.get("description", ""))
     return {"ok": True}
+
+
+@app.post("/api/skills/env-pull")
+def skills_env_pull(body: dict = Body(...)):
+    """从环境 pod 拉取 skill：body {pod, namespace, skills?: [...], remote_dir?}，返回任务 id，结果里带差异"""
+    pod = body.get("pod")
+    if not pod:
+        raise HTTPException(400, "请选择 pod")
+    skills = body.get("skills") or None
+    job = jobs.start("env-pull", f"从 {pod} 拉取 skill" + (f"（{', '.join(skills)}）" if skills else "（全部）"),
+                     lambda j: env_pull.pull(j, pod, body.get("namespace"), skills, body.get("remote_dir", "")))
+    return {"job_id": job.id}
+
+
+@app.post("/api/skills/env-pull/apply")
+def skills_env_pull_apply(body: dict = Body(...)):
+    """body {pull_id, skills: [...], message?}：把选中的 skill 用环境内容替换工作区并生成新版本"""
+    if not body.get("skills"):
+        raise HTTPException(400, "请选择要导入的 skill")
+    return env_pull.apply(body["pull_id"], body["skills"], body.get("message", ""))
 
 
 @app.get("/api/skills/{skill}")

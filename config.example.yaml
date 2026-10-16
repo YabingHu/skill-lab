@@ -41,6 +41,8 @@ deploy:
   remote_dir: /opt/agent/skills # skill 在 pod 内的根目录
   # 在 pod 内执行，可用占位符：{pkg} {remote_dir} {skill} {version}
   install_cmd: "mkdir -p {remote_dir} && tar -xzf {pkg} -C {remote_dir} && rm -f {pkg}"
+  # 从环境拉取 skill：在 pod 内执行，stdout 需要是 tar/tar.gz；{paths} 为要拉取的相对路径（全部时为 "."）
+  fetch_cmd: "cd {remote_dir} && tar -czf - $(ls -d {paths} 2>/dev/null)"
   post_cmd: ""                  # 例如 "curl -s -XPOST localhost:8080/admin/reload-skills"
   concurrency: 4
 

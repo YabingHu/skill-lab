@@ -11,6 +11,7 @@
 | 页面 | 功能 |
 |---|---|
 | **Skill 编辑** | 网页直接编辑中/英文目录，中英对照，Markdown 预览；每次保存生成一个版本，可查看任意两个版本的差异，并回退（中英文都回退，或只回退其中一种）|
+| **从环境拉取** | 选一个 pod，把 pod 内 skill 目录（当前 skill 或全部）读回来，逐文件和本地对比（本地没有 / 有差异 / 一致），勾选后导入为「环境拉取」版本；导入前会先把本地内容存成版本，可回退 |
 | **LLM 同步英文** | 找出上次对齐后中文改过的文件，让本地 LLM 生成英文修改建议，按 diff 块逐个勾选，也可以手动编辑结果再应用；支持全量一致性检查 |
 | **发布** | 选版本、选语言，输入 pod 名包含的字符串（支持「或 / 且 / 排除」），预览匹配的 pod 后一键发布；打包、复制、安装、reload 都是可配置的命令，保留发布记录 |
 | **问答调试** | 选择问答接口，勾选故障预设，自定义 Header；支持 SSE；自动提取并记录 conversation-id（也可以手动修正）；一键「拉取并下载」该会话的 llm-calls.jsonl；可重复提问做稳定性对比 |
@@ -48,12 +49,13 @@ bash scripts/start.sh                   # 安装依赖、构建前端并启动�
 1. **skill 目录**：`skills.root` 和 `skills.layout`（`{lang}/{skill}` 或 `{skill}/{lang}`）。第一次打开某个 skill 时会自动建立 v1。
 2. **LLM**：`.env` 里的 `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`，任何 OpenAI 兼容接口都可以（vLLM、Ollama、内部网关等）。
 3. **pod 操作命令**：`env.commands` 下的 `list_pods` / `exec` / `cp_to`。默认用 kubectl；经过跳板机或者用你们自己的脚本，改这几条模板即可。
-4. **打包与安装**：`deploy.package_cmd` 指向你们的打包脚本（参数约定见 `scripts/package_skill.sh`），`deploy.install_cmd` / `post_cmd` 是在 pod 内执行的安装和 reload 命令。
-5. **环境信息脚本**：`env.commands.env_info`。
-6. **问答接口**：`chat.endpoints` 的 url、body 模板，以及 `conversation_id_rules`（从响应头 / JSON 字段 / 正则提取 conversation-id）。如果环境允许调用方指定 ID，配置 `send_conversation_id_header`，这样最稳。
-7. **故障注入**：`chat.faults`。每个故障可以加 Header、合并请求体、提问前在 pod 内执行命令、提问后清理。
-8. **日志**：`logs.paths` / `logs.glob` / `logs.conversation_id_paths`。
-9. **日志格式**：默认自动识别 OpenAI Chat Completions、Anthropic Messages 和 OpenAI Responses 三种格式（工具调用、工具结果、usage、耗时）。字段位置不一样的话，在 `analysis.fields` 里用 JSON 路径指定。
+4. **从环境拉取**：`deploy.fetch_cmd` 是在 pod 内执行、往 stdout 输出 tar/tar.gz 的命令（默认 `cd {remote_dir} && tar -czf - ...`），目录结构和发布时一致。
+5. **打包与安装**：`deploy.package_cmd` 指向你们的打包脚本（参数约定见 `scripts/package_skill.sh`），`deploy.install_cmd` / `post_cmd` 是在 pod 内执行的安装和 reload 命令。
+6. **环境信息脚本**：`env.commands.env_info`。
+7. **问答接口**：`chat.endpoints` 的 url、body 模板，以及 `conversation_id_rules`（从响应头 / JSON 字段 / 正则提取 conversation-id）。如果环境允许调用方指定 ID，配置 `send_conversation_id_header`，这样最稳。
+8. **故障注入**：`chat.faults`。每个故障可以加 Header、合并请求体、提问前在 pod 内执行命令、提问后清理。
+9. **日志**：`logs.paths` / `logs.glob` / `logs.conversation_id_paths`。
+10. **日志格式**：默认自动识别 OpenAI Chat Completions、Anthropic Messages 和 OpenAI Responses 三种格式（工具调用、工具结果、usage、耗时）。字段位置不一样的话，在 `analysis.fields` 里用 JSON 路径指定。
 
 ## 分析是怎么算的
 

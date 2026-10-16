@@ -6,6 +6,9 @@
         <el-input v-model="kw" placeholder="搜索 skill" size="small" clearable :prefix-icon="Search" />
         <el-button size="small" type="primary" :icon="Plus" @click="createVisible = true" />
       </div>
+      <div class="list-actions">
+        <el-button size="small" :icon="Download" style="width:100%" @click="openPull('all')">从环境拉取 skill</el-button>
+      </div>
       <div class="list">
         <div v-for="s in filteredSkills" :key="s.name" class="skill-item" :class="{ active: s.name === name }"
              @click="selectSkill(s.name)">
@@ -41,6 +44,7 @@
             <el-button size="small" :icon="MagicStick" @click="openSync">LLM 同步英文</el-button>
           </el-badge>
           <el-button size="small" :icon="Clock" @click="openHistory">版本历史</el-button>
+          <el-button size="small" :icon="Download" @click="openPull('current')">从环境拉取</el-button>
           <el-button size="small" :icon="Upload" @click="$router.push({ path: '/deploy', query: { skill: name } })">发布</el-button>
         </div>
       </div>
@@ -176,6 +180,77 @@
       </div>
     </el-dialog>
 
+    <!-- 从环境拉取 -->
+    <el-dialog v-model="pullVisible" title="从环境拉取 skill" width="88%" top="4vh" :close-on-click-modal="false">
+      <div class="pull-form">
+        <el-input v-model="pullForm.namespace" placeholder="namespace" style="width:170px"><template #prepend>ns</template></el-input>
+        <el-input v-model="pullForm.pod_filter" placeholder="pod 名包含的字符串" style="width:240px" clearable @keyup.enter="queryPullPods">
+          <template #prepend>包含</template>
+        </el-input>
+        <el-button :icon="Search" :loading="pullPodsLoading" @click="queryPullPods">查询 pod</el-button>
+        <el-select v-model="pullForm.pod" filterable placeholder="选择从哪个 pod 拉取" style="width:260px">
+          <el-option v-for="p in pullPods" :key="p.name" :value="p.name" :label="p.name">
+            {{ p.name }}<span class="muted" style="float:right">{{ p.status }}</span>
+          </el-option>
+        </el-select>
+      </div>
+      <div class="pull-form">
+        <el-input v-model="pullForm.remote_dir" placeholder="pod 内 skill 根目录" style="width:420px" class="mono">
+          <template #prepend>pod 内目录</template>
+        </el-input>
+        <el-radio-group v-model="pullForm.scope">
+          <el-radio-button value="current" :disabled="!name">当前 skill（{{ name || '-' }}）</el-radio-button>
+          <el-radio-button value="all">目录下全部 skill</el-radio-button>
+        </el-radio-group>
+        <el-button type="primary" :icon="Download" :disabled="!pullForm.pod" :loading="pullJob?.status === 'running'" @click="startPull">拉取并对比</el-button>
+      </div>
+      <div class="muted small-tip">按「{{ layoutText }}」识别目录结构；导入前会先把本地当前内容保存成一个版本，导入后可以随时回退。</div>
+      <JobLog v-if="pullJob && (pullJob.status !== 'success' || !pullResult)" :job="pullJob" height="160px" style="margin-top:10px" />
+
+      <template v-if="pullResult">
+        <div class="pull-head">
+          <span>来自 <b class="mono">{{ pullResult.pod }}:{{ pullResult.remote_dir }}</b>，共 {{ pullResult.skills.length }} 个 skill</span>
+          <span class="spacer"></span>
+          <el-button size="small" link @click="pullSelected = pullResult.skills.filter(s => s.status !== 'same').map(s => s.name)">选中有差异的</el-button>
+          <el-button size="small" link @click="pullSelected = []">全不选</el-button>
+        </div>
+        <el-empty v-if="!pullResult.skills.length" description="没有识别到 skill，请检查 pod 内目录与 skills.layout 配置" :image-size="60" />
+        <div v-for="s in pullResult.skills" :key="s.name" class="pull-item">
+          <div class="pull-item-head" @click="togglePullOpen(s.name)">
+            <el-checkbox :model-value="pullSelected.includes(s.name)" :disabled="s.status === 'same'" @click.stop
+                         @change="v => togglePullSel(s.name, v)" />
+            <b>{{ s.name }}</b>
+            <el-tag size="small" effect="light" :type="{ new: 'success', changed: 'warning', same: 'info' }[s.status]">
+              {{ { new: '本地没有，新增', changed: `与本地不同（${s.files.length} 个文件）`, same: '与本地一致' }[s.status] }}
+            </el-tag>
+            <span class="muted small-tip">环境上的目录：{{ s.langs.join(' / ') || '-' }}</span>
+            <span class="spacer"></span>
+            <el-icon v-if="s.files.length"><component :is="pullOpen.includes(s.name) ? 'ArrowUp' : 'ArrowDown'" /></el-icon>
+          </div>
+          <div v-if="pullOpen.includes(s.name)" class="pull-files">
+            <div v-for="d in s.files" :key="d.lang + d.path" class="diff-item">
+              <div class="diff-file">
+                <el-tag size="small" :type="d.lang === 'zh' ? 'danger' : 'primary'" effect="plain">{{ d.lang }}</el-tag>
+                <span class="mono">{{ d.path }}</span>
+                <el-tag size="small" effect="plain" :type="{ added: 'success', deleted: 'danger', modified: 'warning' }[d.status]">
+                  {{ { added: '环境新增', deleted: '环境上没有（导入后删除）', modified: '修改' }[d.status] }}
+                </el-tag>
+                <span class="add">+{{ d.additions }}</span><span class="delc">-{{ d.deletions }}</span>
+              </div>
+              <DiffView :old-text="d.old" :new-text="d.new" :labels="['本地工作区', '环境（' + pullResult.pod + '）']" max-height="360px" />
+            </div>
+          </div>
+        </div>
+      </template>
+      <template #footer>
+        <div class="row" style="justify-content:flex-end">
+          <el-input v-model="pullMsg" placeholder="版本说明（可选）" style="width:300px" />
+          <el-button @click="pullVisible = false">关闭</el-button>
+          <el-button type="primary" :disabled="!pullSelected.length" :loading="pullApplying" @click="applyPull">导入选中的 {{ pullSelected.length }} 个 skill</el-button>
+        </div>
+      </template>
+    </el-dialog>
+
     <!-- LLM 同步 -->
     <el-dialog v-model="syncVisible" title="LLM 同步英文（逐块人工确认）" width="92%" top="3vh" :close-on-click-modal="false">
       <div class="row" style="margin-bottom:12px">
@@ -246,7 +321,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Check, Clock, Delete, Document, DocumentAdd, MagicStick, Plus, Search, Upload } from '@element-plus/icons-vue'
+import { Check, Clock, Delete, Document, DocumentAdd, Download, MagicStick, Plus, Search, Upload } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import { api, pollJob, qs } from '../api'
 import { fmtTime } from '../utils'
@@ -269,6 +344,7 @@ const newPaths = ref([])
 const sourceMeta = {
   manual: { label: '手动', type: 'primary' }, import: { label: '导入', type: 'info' },
   'llm-sync': { label: 'LLM 同步', type: 'success' }, rollback: { label: '回退', type: 'warning' },
+  'env-pull': { label: '环境拉取', type: 'danger' },
 }
 const actionMeta = {
   modify: { label: '建议修改', type: 'warning' }, create: { label: '新建英文', type: 'success' },
@@ -505,6 +581,84 @@ async function markSynced() {
   loadSkills()
 }
 
+// ---------------------------------------------------------------- 从环境拉取
+const pullVisible = ref(false)
+const pullForm = reactive({ namespace: '', pod_filter: '', pod: '', remote_dir: '', scope: 'current' })
+const pullPods = ref([])
+const pullPodsLoading = ref(false)
+const pullJob = ref(null)
+const pullResult = ref(null)
+const pullSelected = ref([])
+const pullOpen = ref([])
+const pullMsg = ref('')
+const pullApplying = ref(false)
+const layoutText = ref('')
+let pullCfgLoaded = false
+
+async function openPull(scope) {
+  if (dirtyCount.value) { ElMessage.warning('请先保存当前修改'); return }
+  if (!pullCfgLoaded) {
+    const cfg = await api.get('/config')
+    pullForm.namespace = cfg.env.namespace
+    pullForm.pod_filter = cfg.deploy.default_pod_filter || ''
+    pullForm.remote_dir = cfg.deploy.remote_dir
+    layoutText.value = cfg.skills.layout
+    pullCfgLoaded = true
+    queryPullPods()
+  }
+  pullForm.scope = scope === 'current' && name.value ? 'current' : 'all'
+  pullResult.value = null
+  pullJob.value = null
+  pullVisible.value = true
+}
+async function queryPullPods() {
+  pullPodsLoading.value = true
+  try {
+    const r = await api.get('/env/pods' + qs({ filter: pullForm.pod_filter, namespace: pullForm.namespace }))
+    if (!r.ok) { ElMessage.error(r.error); pullPods.value = []; return }
+    pullPods.value = r.pods
+    if (!pullPods.value.some(p => p.name === pullForm.pod)) {
+      pullForm.pod = (pullPods.value.find(p => p.status === 'Running') || pullPods.value[0])?.name || ''
+    }
+  } finally { pullPodsLoading.value = false }
+}
+async function startPull() {
+  pullResult.value = null
+  pullSelected.value = []
+  pullOpen.value = []
+  const { job_id } = await api.post('/skills/env-pull', {
+    pod: pullForm.pod, namespace: pullForm.namespace, remote_dir: pullForm.remote_dir,
+    skills: pullForm.scope === 'current' ? [name.value] : null,
+  })
+  const j = await pollJob(job_id, x => { pullJob.value = x })
+  if (j.status === 'success' && j.result?.pull_id) {
+    pullResult.value = j.result
+    pullSelected.value = j.result.skills.filter(s => s.status !== 'same').map(s => s.name)
+    pullOpen.value = j.result.skills.filter(s => s.status === 'changed').map(s => s.name).slice(0, 3)
+  }
+}
+function togglePullSel(n, v) {
+  pullSelected.value = v ? [...new Set([...pullSelected.value, n])] : pullSelected.value.filter(x => x !== n)
+}
+function togglePullOpen(n) {
+  pullOpen.value = pullOpen.value.includes(n) ? pullOpen.value.filter(x => x !== n) : [...pullOpen.value, n]
+}
+async function applyPull() {
+  try {
+    await ElMessageBox.confirm(`用环境上的内容替换本地这 ${pullSelected.value.length} 个 skill：\n${pullSelected.value.join('\n')}\n\n本地当前内容会先保存为版本，可回退。`, '确认导入', { type: 'warning' })
+  } catch { return }
+  pullApplying.value = true
+  try {
+    const r = await api.post('/skills/env-pull/apply', { pull_id: pullResult.value.pull_id, skills: pullSelected.value, message: pullMsg.value })
+    ElMessage.success('已导入：' + r.imported.map(x => `${x.skill}${x.version ? ' v' + x.version : '（无变化）'}`).join('，'))
+    pullVisible.value = false
+    Object.keys(buffers).forEach(k => delete buffers[k])
+    await loadSkills()
+    if (name.value) await loadDetail()
+    else if (r.imported.length) router.push('/skills/' + encodeURIComponent(r.imported[0].skill))
+  } finally { pullApplying.value = false }
+}
+
 // ---------------------------------------------------------------- 新建 skill
 const createVisible = ref(false)
 const newSkill = reactive({ name: '', description: '' })
@@ -538,6 +692,14 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', onBeforeUnload)
 .list-pane { width: 230px; border-right: 1px solid var(--sl-border); background: #fff; display: flex; flex-direction: column; }
 .list-head { display: flex; gap: 6px; padding: 12px; border-bottom: 1px solid var(--sl-border); }
 .list { overflow: auto; flex: 1; padding: 6px; }
+.list-actions { padding: 8px 12px 0; }
+.pull-form { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.small-tip { font-size: 12px; }
+.pull-head { display: flex; align-items: center; gap: 8px; margin: 14px 0 6px; }
+.pull-head .spacer, .pull-item-head .spacer { flex: 1; }
+.pull-item { border: 1px solid var(--sl-border); border-radius: 10px; margin-top: 8px; }
+.pull-item-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; cursor: pointer; }
+.pull-files { padding: 0 12px 4px; border-top: 1px solid var(--sl-border); padding-top: 10px; }
 .skill-item { padding: 8px 10px; border-radius: 8px; cursor: pointer; }
 .skill-item:hover { background: #f1f5f9; }
 .skill-item.active { background: #eff6ff; }

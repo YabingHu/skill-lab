@@ -58,7 +58,8 @@ def main(argv):
         # 输出里的本地目录映射回 pod 内路径（例如 find 的结果）
         p = subprocess.run(full, capture_output=True)
         base = str(pod_dir(pod)).encode()
-        sys.stdout.buffer.write(p.stdout.replace(base, b""))
+        out = p.stdout if p.stdout[:2] == b"\x1f\x8b" else p.stdout.replace(base, b"")  # gzip 等二进制原样输出
+        sys.stdout.buffer.write(out)
         sys.stderr.buffer.write(p.stderr.replace(base, b""))
         return p.returncode
     if argv[0] == "cp":

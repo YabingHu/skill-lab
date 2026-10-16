@@ -277,3 +277,55 @@ def test_raw_log_download_independent_of_format(tmp_path):
         raise AssertionError("path traversal not blocked")
     except ValueError:
         pass
+
+
+# ------------------------------------------------------------------ 从环境拉取 skill
+def test_safe_extract_rejects_unsafe_members(tmp_path):
+    import io
+    import tarfile
+    from app.services.env_pull import safe_extract
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        for name, data in (("./zh/demo/SKILL.md", b"ok"), ("../evil.txt", b"x"), ("/abs.txt", b"x")):
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+        link = tarfile.TarInfo("zh/demo/link")
+        link.type = tarfile.SYMTYPE
+        link.linkname = "/etc/passwd"
+        tar.addfile(link)
+    dest = tmp_path / "out"
+    dest.mkdir()
+    assert safe_extract(buf.getvalue(), dest) == 1
+    assert (dest / "zh/demo/SKILL.md").read_bytes() == b"ok"
+    assert not (tmp_path / "evil.txt").exists() and not (dest / "zh/demo/link").exists()
+
+
+def test_env_pull_compare_and_apply(tmp_path):
+    from app.services.env_pull import EnvPullService
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("data_dir: ./data\nskills:\n  root: ./skills\n", encoding="utf-8")
+    cfg = Config(cfg_file)
+    store = SkillStore(cfg, DB(cfg.data_dir / "t.db"))
+    store.create_skill("demo")
+    store.apply_changes("demo", {"zh": {"local-only.md": "本地"}})  # 未保存为版本的本地修改
+    svc = EnvPullService(cfg, store, env=None)
+    snap = svc.root / "p1"
+    for rel, text in (("zh/demo/SKILL.md", "环境版本"), ("zh/other/SKILL.md", "新 skill")):
+        (snap / rel).parent.mkdir(parents=True, exist_ok=True)
+        (snap / rel).write_text(text, encoding="utf-8")
+    (snap / ".meta.json").write_text('{"pod": "agent-0", "remote_dir": "/opt/agent/skills"}', encoding="utf-8")
+    res = {s["name"]: s for s in svc.compare("p1")}
+    assert res["other"]["status"] == "new" and res["demo"]["status"] == "changed"
+    assert res["demo"]["langs"] == ["zh"]  # 环境上没有 en，导入时保留本地英文
+    assert {(f["path"], f["status"]) for f in res["demo"]["files"]} == {("SKILL.md", "modified"), ("local-only.md", "deleted")}
+    en_before = (store.lang_dir("demo", "en") / "SKILL.md").read_text(encoding="utf-8")
+    out = svc.apply("p1", ["demo", "other"])
+    assert [x["skill"] for x in out["imported"]] == ["demo", "other"]
+    assert (store.lang_dir("demo", "zh") / "SKILL.md").read_text(encoding="utf-8") == "环境版本"
+    assert not (store.lang_dir("demo", "zh") / "local-only.md").exists()
+    assert (store.lang_dir("demo", "en") / "SKILL.md").read_text(encoding="utf-8") == en_before
+    versions = store.list_versions("demo")
+    assert [v["source"] for v in versions[:2]] == ["env-pull", "manual"]  # 导入前自动保存了本地修改
+    assert store.version_files("demo", versions[1]["seq"])["zh"]["local-only.md"] == "本地".encode()
+    assert store.latest_version("other")["source"] == "env-pull"
