@@ -246,3 +246,34 @@ def test_endpoint_defaults_filled(tmp_path):
     cfg = Config(cfg_file)
     ep = cfg["chat"]["endpoints"][0]
     assert ep["url"] == "http://a" and ep["conversation_id_rules"]
+
+
+# ------------------------------------------------------------------ 原始日志下载
+def test_raw_log_download_independent_of_format(tmp_path):
+    from app.services.logs import LogService
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("data_dir: ./data\nskills:\n  root: ./skills\n", encoding="utf-8")
+    cfg = Config(cfg_file)
+    svc = LogService(cfg, DB(cfg.data_dir / "t.db"), env=None)
+    # 全量文件：格式未知（非 JSON 行也要保留），同一行在按 ID 拉取的文件里重复出现
+    full = svc.local_path("agent-0", "/var/log/agent/llm-calls.jsonl")
+    full.parent.mkdir(parents=True)
+    full.write_text('{"cid":"abc-1","n":1}\nplain text abc-1 line\n{"cid":"zzz","n":2}\n{"cid":"abc-1","n":3}\n', encoding="utf-8")
+    part = svc.local_path("agent-0", "/var/log/agent/llm-calls.jsonl", "abc-1")
+    part.parent.mkdir(parents=True)
+    part.write_text('{"cid":"abc-1","n":1}\n{"cid":"abc-1","n":4}\n', encoding="utf-8")
+    files = svc.list_files()
+    assert {(f["pod"], f["remote"], f["conversation_id"]) for f in files} == {
+        ("agent-0", "/var/log/agent/llm-calls.jsonl", ""), ("agent-0", "/var/log/agent/llm-calls.jsonl", "abc-1")}
+    lines = svc.conversation_lines("abc-1")
+    assert lines == ['{"cid":"abc-1","n":1}', "plain text abc-1 line", '{"cid":"abc-1","n":3}', '{"cid":"abc-1","n":4}']
+    assert svc.conversation_lines("nope") == []
+    import zipfile
+    z = svc.build_archive()
+    assert sorted(zipfile.ZipFile(z).namelist()) == sorted(f["rel"] for f in files)
+    z.unlink()
+    try:
+        svc.file_path("../t.db")
+        raise AssertionError("path traversal not blocked")
+    except ValueError:
+        pass

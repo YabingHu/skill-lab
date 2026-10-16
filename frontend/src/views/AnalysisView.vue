@@ -26,6 +26,7 @@
       </template>
       <span class="spacer"></span>
       <el-button :icon="Refresh" :loading="pulling" :disabled="!conv" @click="repull">重新拉取日志</el-button>
+      <el-button :icon="Download" :disabled="!conv" @click="downloadConversation(conv)">下载 jsonl</el-button>
       <el-button type="primary" :icon="MagicStick" :loading="reviewing" :disabled="!data || !data.alignment.steps.length" @click="runReview">LLM 评审</el-button>
     </div>
 
@@ -327,8 +328,8 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { CopyDocument, EditPen, MagicStick, Refresh } from '@element-plus/icons-vue'
-import { api, pollJob, qs } from '../api'
+import { CopyDocument, Download, EditPen, MagicStick, Refresh } from '@element-plus/icons-vue'
+import { api, downloadConversation, pollJob, qs } from '../api'
 import { STATUS_META, TYPE_COLORS, copyText, fmtMs, fmtNum, fmtTime, pretty } from '../utils'
 import Timeline from '../components/Timeline.vue'
 

@@ -4,7 +4,7 @@
     <div class="grid">
       <div class="card">
         <div class="card-title">拉取日志</div>
-        <el-form label-width="110px" size="default">
+        <el-form label-width="130px" size="default">
           <el-form-item label="pod 包含">
             <el-input v-model="form.pod_filter" placeholder="pod 名包含的字符串，如 agent" />
           </el-form-item>
@@ -42,6 +42,35 @@
 
     <div class="card">
       <div class="card-title">
+        已拉取的原始文件
+        <span class="muted small-note">与 pod 上的文件内容一致，未做任何处理</span>
+        <span class="spacer"></span>
+        <el-input v-model="dlConv" size="small" placeholder="输入 conversation-id 下载对应日志行" clearable style="width:280px"
+                  @keyup.enter="dlByConv" />
+        <el-button size="small" :icon="Download" :disabled="!dlConv.trim()" @click="dlByConv">按 ID 下载</el-button>
+        <el-button size="small" type="primary" :icon="Files" :disabled="!files.length" @click="download('/logs/files/archive', 'llm-calls.zip')">全部打包下载</el-button>
+      </div>
+      <el-table :data="files" size="small" max-height="320" empty-text="还没有拉取过日志">
+        <el-table-column prop="pod" label="pod" width="190" show-overflow-tooltip />
+        <el-table-column label="pod 内路径" min-width="260"><template #default="{ row }"><span class="mono">{{ row.remote }}</span></template></el-table-column>
+        <el-table-column label="范围" width="220">
+          <template #default="{ row }">
+            <el-tag v-if="row.conversation_id" size="small" type="info" effect="plain">仅 {{ row.conversation_id }}</el-tag>
+            <el-tag v-else size="small" effect="plain">全量</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="大小" width="90"><template #default="{ row }">{{ fmtSize(row.size) }}</template></el-table-column>
+        <el-table-column label="拉取时间" width="120"><template #default="{ row }">{{ fmtTime(row.mtime) }}</template></el-table-column>
+        <el-table-column label="" width="80" fixed="right">
+          <template #default="{ row }">
+            <el-button link size="small" type="primary" :icon="Download" @click="download('/logs/files/download?rel=' + encodeURIComponent(row.rel), row.remote.split('/').pop())">下载</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+
+    <div class="card">
+      <div class="card-title">
         会话列表
         <el-input v-model="q" size="small" placeholder="搜索 conversation-id" clearable style="width:260px" @change="load" />
         <span class="spacer"></span>
@@ -65,8 +94,9 @@
         <el-table-column label="pod" width="170" show-overflow-tooltip><template #default="{ row }">{{ row.pods.join(', ') }}</template></el-table-column>
         <el-table-column label="开始" width="120"><template #default="{ row }">{{ fmtTime(row.first_ts) }}</template></el-table-column>
         <el-table-column label="时长" width="80"><template #default="{ row }">{{ row.calls ? fmtMs((row.last_ts - row.first_ts) * 1000) : '-' }}</template></el-table-column>
-        <el-table-column label="操作" width="170" fixed="right">
+        <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
+            <el-button link size="small" type="primary" :icon="Download" @click.stop="downloadConversation(row.conversation_id)">下载</el-button>
             <el-button link size="small" type="success" @click.stop="go(row)">分析</el-button>
             <el-button link size="small" type="primary" @click.stop="pullOne(row)">重新拉取</el-button>
             <el-button link size="small" type="danger" :disabled="!row.calls" @click.stop="remove(row)">清除</el-button>
@@ -82,9 +112,9 @@ defineOptions({ name: 'LogsView' })
 import { onActivated, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Download, Refresh, UploadFilled } from '@element-plus/icons-vue'
-import { api, pollJob, qs } from '../api'
-import { fmtMs, fmtNum, fmtTime } from '../utils'
+import { Download, Files, Refresh, UploadFilled } from '@element-plus/icons-vue'
+import { api, download, downloadConversation, pollJob, qs } from '../api'
+import { fmtMs, fmtNum, fmtSize, fmtTime } from '../utils'
 import JobLog from '../components/JobLog.vue'
 
 const router = useRouter()
@@ -93,10 +123,14 @@ const job = ref(null)
 const stats = ref({})
 const convs = ref([])
 const q = ref('')
+const files = ref([])
+const dlConv = ref('')
+function dlByConv() { if (dlConv.value.trim()) downloadConversation(dlConv.value.trim()) }
 
 async function load() {
   stats.value = await api.get('/logs/stats')
   convs.value = await api.get('/conversations' + qs({ q: q.value }))
+  files.value = await api.get('/logs/files')
 }
 async function pull() {
   const { job_id } = await api.post('/logs/pull', { ...form })
@@ -135,6 +169,7 @@ onActivated(load)
 <style scoped>
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
 .grid .card + .card { margin-top: 0; }
+.small-note { font-size: 12px; font-weight: 400; }
 .kpi .value.small { font-size: 15px; padding-top: 6px; }
 .help { font-size: 13px; line-height: 1.7; }
 .help p { margin: 4px 0; }

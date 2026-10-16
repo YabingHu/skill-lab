@@ -60,3 +60,10 @@ export const STATUS_META = {
 export const TYPE_COLORS = {
   LLM: '#2a78d6', CLI: '#eb6834', API: '#1baf7a', FILE: '#eda100', TOOL: '#8a8a86',
 }
+
+export function fmtSize(n) {
+  if (n === null || n === undefined) return '-'
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / 1024 / 1024).toFixed(1)} MB`
+}

@@ -54,3 +54,30 @@ export async function pollJob(jobId, onUpdate, interval = 700) {
     await new Promise(r => setTimeout(r, interval))
   }
 }
+
+/** 下载文件：失败时提示后端返回的原因，成功时按 Content-Disposition 的文件名保存 */
+export async function download(url, fallbackName = 'download') {
+  const res = await fetch('/api' + url)
+  if (!res.ok) {
+    let msg = `${res.status} ${res.statusText}`
+    try { msg = (await res.json()).detail || msg } catch { /* ignore */ }
+    ElMessage.error(msg)
+    return false
+  }
+  const cd = res.headers.get('Content-Disposition') || ''
+  const m = cd.match(/filename\*=UTF-8''([^;]+)/i) || cd.match(/filename="?([^";]+)"?/i)
+  const name = m ? decodeURIComponent(m[1]) : fallbackName
+  const blob = await res.blob()
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = name
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000)
+  return true
+}
+
+export function downloadConversation(conv) {
+  return download(`/conversations/${encodeURIComponent(conv)}/download`, `llm-calls-${conv}.jsonl`)
+}

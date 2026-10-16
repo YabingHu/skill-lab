@@ -10,7 +10,8 @@ from typing import Any
 
 from fastapi import Body, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from starlette.background import BackgroundTask
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .config import PROJECT_ROOT, get_config
@@ -269,6 +270,35 @@ async def logs_upload(file: UploadFile = File(...), pod: str = Query("upload")):
 @app.get("/api/logs/stats")
 def logs_stats():
     return logs.stats()
+
+
+@app.get("/api/logs/files")
+def logs_files():
+    return logs.list_files()
+
+
+@app.get("/api/logs/files/download")
+def logs_file_download(rel: str):
+    return FileResponse(logs.file_path(rel), filename=logs.download_name(rel), media_type="application/x-ndjson")
+
+
+@app.get("/api/logs/files/archive")
+def logs_archive(rels: list[str] | None = Query(None)):
+    import os
+    import time
+    path = logs.build_archive(rels)
+    return FileResponse(path, filename=time.strftime("llm-calls-%Y%m%d-%H%M%S.zip"), media_type="application/zip",
+                        background=BackgroundTask(os.remove, path))
+
+
+@app.get("/api/conversations/{conversation_id}/download")
+def conversation_download(conversation_id: str):
+    lines = logs.conversation_lines(conversation_id)
+    if not lines:
+        raise HTTPException(404, "本地没有找到该会话的日志，请先拉取")
+    safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in conversation_id)[:80]
+    return Response("\n".join(lines) + "\n", media_type="application/x-ndjson",
+                    headers={"Content-Disposition": f'attachment; filename="llm-calls-{safe}.jsonl"'})
 
 
 @app.get("/api/conversations")

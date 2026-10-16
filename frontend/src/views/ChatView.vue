@@ -73,7 +73,8 @@
             <el-button link size="small" type="primary" @click="editConv(result)">编辑</el-button>
           </div>
           <div class="row" style="margin:6px 0 10px">
-            <el-button size="small" type="primary" plain :icon="Download" :disabled="!result.conversation_id" :loading="pulling" @click="pullLogs(result)">拉取该会话日志</el-button>
+            <el-button size="small" type="primary" :icon="Download" :disabled="!result.conversation_id" :loading="pulling" @click="pullAndDownload(result)">拉取并下载 llm-calls.jsonl</el-button>
+            <el-button size="small" plain :disabled="!result.conversation_id" :loading="pulling" @click="pullLogs(result)">仅拉取</el-button>
             <el-button size="small" type="success" plain :icon="DataAnalysis" :disabled="!result.conversation_id" @click="goAnalysis(result)">分析执行过程</el-button>
           </div>
           <el-alert v-if="result.error" type="error" :title="result.error" :closable="false" />
@@ -112,9 +113,10 @@
           <template #default="{ row }"><el-tag size="small" :type="row.error || row.status_code >= 400 ? 'danger' : 'success'">{{ row.error ? '失败' : row.status_code }}</el-tag></template>
         </el-table-column>
         <el-table-column label="耗时" width="80"><template #default="{ row }">{{ fmtMs(row.latency_ms) }}</template></el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="260" fixed="right">
           <template #default="{ row }">
             <el-button link size="small" type="primary" @click.stop="reuse(row)">再问一次</el-button>
+            <el-button link size="small" type="primary" :disabled="!row.conversation_id" @click.stop="pullAndDownload(row)">下载日志</el-button>
             <el-button link size="small" type="success" :disabled="!row.conversation_id" @click.stop="goAnalysis(row)">分析</el-button>
             <el-button link size="small" @click.stop="editConv(row)">改 ID</el-button>
             <el-button link size="small" type="danger" @click.stop="remove(row)">删除</el-button>
@@ -136,7 +138,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CopyDocument, DataAnalysis, Download, Promotion, Refresh, View } from '@element-plus/icons-vue'
 import { marked } from 'marked'
-import { api, pollJob, qs } from '../api'
+import { api, downloadConversation, pollJob, qs } from '../api'
 import { copyText, fmtMs, fmtTime, pretty } from '../utils'
 import KeyValueEditor from '../components/KeyValueEditor.vue'
 
@@ -212,14 +214,18 @@ async function remove(row) {
   if (result.value?.id === row.id) result.value = null
   loadHistory()
 }
-async function pullLogs(row) {
+async function pullLogs(row, quiet = false) {
   pulling.value = true
   try {
     const { job_id } = await api.post('/logs/pull', { conversation_id: row.conversation_id })
     const j = await pollJob(job_id)
-    if (j.status === 'success') ElMessage.success(j.logs[j.logs.length - 1].replace(/^\[.*?\]\s*/, ''))
-    else ElMessage.error('拉取失败，请到「会话日志」页查看详情')
+    if (j.status !== 'success') { ElMessage.error('拉取失败，请到「会话日志」页查看详情'); return false }
+    if (!quiet) ElMessage.success(j.logs[j.logs.length - 1].replace(/^\[.*?\]\s*/, ''))
+    return true
   } finally { pulling.value = false }
+}
+async function pullAndDownload(row) {
+  if (await pullLogs(row, true)) await downloadConversation(row.conversation_id)
 }
 function goAnalysis(row) { router.push('/analysis/' + encodeURIComponent(row.conversation_id)) }
 async function copy(t) { await copyText(t); ElMessage.success('已复制') }

@@ -61,6 +61,14 @@ check(bool(r2["conversation_id"]) and bool(r2["answer"]), f"SSE 流式提问，c
 d = wait(call("/logs/pull", {})["job_id"])
 check(d["status"] == "success", "拉取日志：" + d["logs"][-1])
 
+import urllib.parse
+raw = urllib.request.urlopen(B + "/conversations/" + urllib.parse.quote(r1["conversation_id"]) + "/download").read().decode()
+check(raw.count("\n") >= 5 and all(r1["conversation_id"] in l for l in raw.splitlines()),
+      f"下载会话 jsonl：{raw.count(chr(10))} 行")
+files = call("/logs/files")
+z = urllib.request.urlopen(B + "/logs/files/archive").read()
+check(z[:2] == b"PK" and files, f"打包下载全部原始文件：{len(files)} 个文件，{len(z)} 字节")
+
 for r, label in ((r1, "tool_timeout"), (r2, "skip_step")):
     a = call(f"/analysis/{r['conversation_id']}")
     sc = a["alignment"]["scores"]

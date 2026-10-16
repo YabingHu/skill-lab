@@ -3,8 +3,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import tempfile
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 
 from .. import shell
@@ -124,10 +128,8 @@ class LogService:
                     logs.append(f"[{pod}]   ✗ 读取 {f} 失败：{rr.stderr[:300]}")
                     continue
                 data: bytes = rr.stdout  # type: ignore[assignment]
-                local = self.local_root / pod / f.lstrip("/")
+                local = self.local_path(pod, f, conversation_id)
                 local.parent.mkdir(parents=True, exist_ok=True)
-                if conversation_id:
-                    local = local.with_name(local.name + f".{_safe(conversation_id)}")
                 local.write_bytes(data)
                 n, c = self.index_text(pod, f, data.decode("utf-8", "replace"))
                 new_total += n
@@ -145,6 +147,74 @@ class LogService:
         summary["conversations"] = sorted(summary["conversations"])
         job.log(f"完成：新增 {summary['new_records']} 条记录，涉及 {len(summary['conversations'])} 个会话")
         return summary
+
+    # ------------------------------------------------------------ 本地原始文件
+    # 全量拉取：logs/full/<pod>/<pod 内路径>；按 ID 拉取：logs/conv/<id>/<pod>/<pod 内路径>
+    def local_path(self, pod: str, remote: str, conversation_id: str = "") -> Path:
+        if conversation_id:
+            return self.local_root / "conv" / _safe(conversation_id) / _safe(pod) / remote.lstrip("/")
+        return self.local_root / "full" / _safe(pod) / remote.lstrip("/")
+
+    def list_files(self) -> list[dict]:
+        out = []
+        for p in sorted(self.local_root.rglob("*")):
+            if not p.is_file():
+                continue
+            parts = p.relative_to(self.local_root).parts
+            if parts[0] == "full" and len(parts) >= 3:
+                conv, pod, remote = "", parts[1], "/" + "/".join(parts[2:])
+            elif parts[0] == "conv" and len(parts) >= 4:
+                conv, pod, remote = parts[1], parts[2], "/" + "/".join(parts[3:])
+            else:
+                continue
+            st = p.stat()
+            out.append({"rel": p.relative_to(self.local_root).as_posix(), "pod": pod, "remote": remote,
+                        "conversation_id": conv, "size": st.st_size, "mtime": st.st_mtime})
+        out.sort(key=lambda x: x["mtime"], reverse=True)
+        return out
+
+    def file_path(self, rel: str) -> Path:
+        p = (self.local_root / rel).resolve()
+        if self.local_root.resolve() not in p.parents or not p.is_file():
+            raise ValueError(f"文件不存在：{rel}")
+        return p
+
+    def download_name(self, rel: str) -> str:
+        parts = Path(rel).parts
+        prefix = "_".join(parts[1:3]) if parts[0] == "conv" else parts[1]
+        return f"{prefix}_{parts[-1]}"
+
+    def build_archive(self, rels: list[str] | None = None) -> Path:
+        """把本地拉取的原始日志打成 zip，返回临时文件路径（调用方负责删除）。"""
+        files = rels or [f["rel"] for f in self.list_files()]
+        if not files:
+            raise ValueError("本地还没有拉取过日志")
+        fd, tmp = tempfile.mkstemp(prefix="llm-calls-", suffix=".zip")
+        os.close(fd)
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
+            for rel in files:
+                zf.write(self.file_path(rel), arcname=rel)
+        return Path(tmp)
+
+    def conversation_lines(self, conversation_id: str) -> list[str]:
+        """直接在本地原始日志里按 ID 子串查找行（不依赖日志格式解析），跨文件按原样去重。"""
+        conversation_id = conversation_id.strip()
+        if not conversation_id:
+            return []
+        needle = conversation_id.encode("utf-8")
+        seen: set[bytes] = set()
+        out: list[str] = []
+        targets = [f for f in self.list_files() if f["conversation_id"] in ("", _safe(conversation_id))]
+        targets.sort(key=lambda f: (f["pod"], f["remote"], f["conversation_id"] != ""))
+        for f in targets:
+            with open(self.local_root / f["rel"], "rb") as fh:
+                for line in fh:
+                    if needle in line:
+                        line = line.rstrip(b"\r\n")
+                        if line and line not in seen:
+                            seen.add(line)
+                            out.append(line.decode("utf-8", "replace"))
+        return out
 
     def index_text(self, pod: str, file: str, text: str) -> tuple[int, set]:
         paths = self.conf.get("conversation_id_paths") or []
