@@ -1,0 +1,42 @@
+# 本地演示配置：使用 mock/bin/kubectl 模拟 pod，mock/agent_server.py 模拟问答接口和 LLM
+data_dir: ../data/mock/app
+skills:
+  root: ../data/mock/workspace/skills
+llm:
+  base_url: http://127.0.0.1:9100/v1
+  api_key: mock
+  model: mock-llm
+env:
+  namespace: demo
+  commands:
+    env_info: "bash ../scripts/env_info.sh {namespace}"
+deploy:
+  default_pod_filter: agent
+  package_cmd: "bash ../scripts/package_skill.sh {staging} {out}"
+  post_cmd: "echo reload skills ok"
+chat:
+  endpoints:
+    - name: mock-agent
+      url: http://127.0.0.1:9100/api/chat
+      headers: {Content-Type: application/json}
+      body: {query: "{question}", stream: false}
+    - name: mock-agent-stream
+      url: http://127.0.0.1:9100/api/chat
+      headers: {Content-Type: application/json}
+      body: {query: "{question}", stream: true}
+  faults:
+    - name: tool_timeout
+      label: 工具调用超时
+      description: 第 2 个工具调用返回超时，agent 会重试一次
+      headers: {x-fault-inject: tool_timeout}
+    - name: tool_error
+      label: 工具返回错误
+      description: 第 2 个工具调用返回 connection refused
+      headers: {x-fault-inject: tool_error}
+    - name: skip_step
+      label: 模拟跳步
+      description: agent 跳过第 3 步，用于验证遵从度分析
+      headers: {x-fault-inject: skip_step}
+logs:
+  pod_filter: agent
+  paths: [/var/log/agent]
