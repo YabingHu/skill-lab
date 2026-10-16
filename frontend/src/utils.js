@@ -1,3 +1,8 @@
+// 功能开关：设为 true 即可恢复对应入口（页面路由始终保留，可直接访问）
+export const FEATURES = {
+  analysis: false, // 执行分析：菜单、流程提示、问答 / 日志页里的「分析」按钮
+}
+
 export function fmtTime(ts) {
   if (!ts) return '-'
   const d = new Date(ts * 1000)

@@ -75,7 +75,7 @@
           <div class="row" style="margin:6px 0 10px">
             <el-button size="small" type="primary" :icon="Download" :disabled="!result.conversation_id" :loading="pulling" @click="pullAndDownload(result)">拉取并下载 llm-calls.jsonl</el-button>
             <el-button size="small" plain :disabled="!result.conversation_id" :loading="pulling" @click="pullLogs(result)">仅拉取</el-button>
-            <el-button size="small" type="success" plain :icon="DataAnalysis" :disabled="!result.conversation_id" @click="goAnalysis(result)">分析执行过程</el-button>
+            <el-button v-if="FEATURES.analysis" size="small" type="success" plain :icon="DataAnalysis" :disabled="!result.conversation_id" @click="goAnalysis(result)">分析执行过程</el-button>
           </div>
           <el-alert v-if="result.error" type="error" :title="result.error" :closable="false" />
           <div v-if="result.answer" class="answer" v-html="render(result.answer)"></div>
@@ -117,7 +117,7 @@
           <template #default="{ row }">
             <el-button link size="small" type="primary" @click.stop="reuse(row)">再问一次</el-button>
             <el-button link size="small" type="primary" :disabled="!row.conversation_id" @click.stop="pullAndDownload(row)">下载日志</el-button>
-            <el-button link size="small" type="success" :disabled="!row.conversation_id" @click.stop="goAnalysis(row)">分析</el-button>
+            <el-button v-if="FEATURES.analysis" link size="small" type="success" :disabled="!row.conversation_id" @click.stop="goAnalysis(row)">分析</el-button>
             <el-button link size="small" @click.stop="editConv(row)">改 ID</el-button>
             <el-button link size="small" type="danger" @click.stop="remove(row)">删除</el-button>
           </template>
@@ -139,7 +139,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { CopyDocument, DataAnalysis, Download, Promotion, Refresh, View } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import { api, downloadConversation, pollJob, qs } from '../api'
-import { copyText, fmtMs, fmtTime, pretty } from '../utils'
+import { FEATURES, copyText, fmtMs, fmtTime, pretty } from '../utils'
 import KeyValueEditor from '../components/KeyValueEditor.vue'
 
 const router = useRouter()

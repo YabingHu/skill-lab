@@ -76,7 +76,7 @@
         <span class="spacer"></span>
         <el-button size="small" text :icon="Refresh" @click="load" />
       </div>
-      <el-table :data="convs" size="small" @row-click="r => go(r)" row-class-name="clickable">
+      <el-table :data="convs" size="small" @row-click="r => FEATURES.analysis && go(r)" :row-class-name="FEATURES.analysis ? 'clickable' : ''">
         <el-table-column label="conversation-id" min-width="200">
           <template #default="{ row }"><span class="mono">{{ row.conversation_id }}</span></template>
         </el-table-column>
@@ -97,7 +97,7 @@
         <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
             <el-button link size="small" type="primary" :icon="Download" @click.stop="downloadConversation(row.conversation_id)">下载</el-button>
-            <el-button link size="small" type="success" @click.stop="go(row)">分析</el-button>
+            <el-button v-if="FEATURES.analysis" link size="small" type="success" @click.stop="go(row)">分析</el-button>
             <el-button link size="small" type="primary" @click.stop="pullOne(row)">重新拉取</el-button>
             <el-button link size="small" type="danger" :disabled="!row.calls" @click.stop="remove(row)">清除</el-button>
           </template>
@@ -114,7 +114,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Download, Files, Refresh, UploadFilled } from '@element-plus/icons-vue'
 import { api, download, downloadConversation, pollJob, qs } from '../api'
-import { fmtMs, fmtNum, fmtSize, fmtTime } from '../utils'
+import { FEATURES, fmtMs, fmtNum, fmtSize, fmtTime } from '../utils'
 import JobLog from '../components/JobLog.vue'
 
 const router = useRouter()
@@ -149,7 +149,7 @@ async function upload({ file }) {
   load()
 }
 async function remove(row) {
-  try { await ElMessageBox.confirm(`清除 ${row.conversation_id} 的本地日志与分析结果？（不影响环境上的日志）`, '提示', { type: 'warning' }) } catch { return }
+  try { await ElMessageBox.confirm(`清除 ${row.conversation_id} 的本地日志索引${FEATURES.analysis ? '与分析结果' : ''}？（不影响环境上的日志）`, '提示', { type: 'warning' }) } catch { return }
   await api.del('/conversations/' + encodeURIComponent(row.conversation_id))
   load()
 }

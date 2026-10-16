@@ -14,7 +14,7 @@
         <el-menu-item index="/deploy"><el-icon><Upload /></el-icon>发布</el-menu-item>
         <el-menu-item index="/chat"><el-icon><ChatDotRound /></el-icon>问答调试</el-menu-item>
         <el-menu-item index="/logs"><el-icon><Document /></el-icon>会话日志</el-menu-item>
-        <el-menu-item index="/analysis"><el-icon><DataAnalysis /></el-icon>执行分析</el-menu-item>
+        <el-menu-item v-if="FEATURES.analysis" index="/analysis"><el-icon><DataAnalysis /></el-icon>执行分析</el-menu-item>
         <el-menu-item index="/env"><el-icon><Monitor /></el-icon>环境</el-menu-item>
       </el-menu>
       <div class="flow">
@@ -42,10 +42,12 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from './api'
+import { FEATURES } from './utils'
 
 const route = useRoute()
 const active = computed(() => '/' + (route.path.split('/')[1] || 'skills'))
-const flow = ['修改中文 skill', 'LLM 同步英文', '发布到 pod', '注入故障提问', '拉取日志', '分析遵从度']
+const flow = ['修改中文 skill', 'LLM 同步英文', '发布到 pod', '注入故障提问',
+  FEATURES.analysis ? '拉取日志' : '拉取 / 下载日志', ...(FEATURES.analysis ? ['分析遵从度'] : [])]
 const llm = ref({})
 async function pingLLM() {
   llm.value = { model: llm.value.model }

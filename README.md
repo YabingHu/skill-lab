@@ -16,7 +16,7 @@
 | **发布** | 选版本、选语言，输入 pod 名包含的字符串（支持「或 / 且 / 排除」），预览匹配的 pod 后一键发布；打包、复制、安装、reload 都是可配置的命令，保留发布记录 |
 | **问答调试** | 选择问答接口，勾选故障预设，自定义 Header；支持 SSE；自动提取并记录 conversation-id（也可以手动修正）；一键「拉取并下载」该会话的 llm-calls.jsonl；可重复提问做稳定性对比 |
 | **会话日志** | 在匹配的 pod 内 find 到 `llm-calls*.jsonl`，原样读回本地（可以只 grep 某个 ID）；**下载**：单个原始文件、全部打包 zip、按 conversation-id 下载对应的日志行（直接按文本查找，不依赖日志格式解析）；也支持导入本地 jsonl |
-| **执行分析** | 遵从度评分、步骤覆盖 / 乱序 / 缺失、每次 CLI / API 调用的输入输出、与 skill 步骤的对齐关系、执行时间线、每次 LLM 调用的 token（含缓存命中）与耗时；可让 LLM 做语义评审并给出 skill 修改建议 |
+| **执行分析**（默认隐藏，见下方说明） | 遵从度评分、步骤覆盖 / 乱序 / 缺失、每次 CLI / API 调用的输入输出、与 skill 步骤的对齐关系、执行时间线、每次 LLM 调用的 token（含缓存命中）与耗时；可让 LLM 做语义评审并给出 skill 修改建议 |
 | **环境** | pod 列表、环境信息脚本、在 pod 内执行命令、LLM 连通性测试、当前配置 |
 
 技术栈：后端 Python FastAPI + SQLite（单进程，无需额外服务），前端 Vue 3 + Element Plus + CodeMirror。
@@ -56,6 +56,11 @@ bash scripts/start.sh                   # 安装依赖、构建前端并启动�
 8. **故障注入**：`chat.faults`。每个故障可以加 Header、合并请求体、提问前在 pod 内执行命令、提问后清理。
 9. **日志**：`logs.paths` / `logs.glob` / `logs.conversation_id_paths`。
 10. **日志格式**：默认自动识别 OpenAI Chat Completions、Anthropic Messages 和 OpenAI Responses 三种格式（工具调用、工具结果、usage、耗时）。字段位置不一样的话，在 `analysis.fields` 里用 JSON 路径指定。
+
+## 执行分析（默认隐藏）
+
+执行分析页目前从菜单和各页面按钮中隐藏，路由仍保留（可直接访问 `/analysis`）。
+恢复入口：把 `frontend/src/utils.js` 里的 `FEATURES.analysis` 改为 `true` 后重新构建前端。
 
 ## 分析是怎么算的
 
