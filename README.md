@@ -91,4 +91,26 @@ mock/                   本地演示环境与冒烟测试
 scripts/                打包 / 环境信息示例脚本、启动脚本
 ```
 
-测试：`cd backend && python3 -m pytest -q tests`
+## 测试
+
+```bash
+bash scripts/test.sh            # 全部测试，约 5 秒
+bash scripts/test.sh -k deploy -v   # 只跑某一类
+```
+
+- `backend/tests/test_core.py`：单元测试，覆盖 diff 块合并、命令模板转义、pod 过滤、conversation-id 提取、步骤解析、日志归一化、安全解包等。
+- `backend/tests/test_flows.py`：基于 MOCK 数据的流程测试。每次运行都会在临时目录里搭一套隔离环境（模拟 kubectl + 4 个模拟 pod + 模拟问答 / LLM 服务），通过 HTTP API 跑通以下流程：
+
+| 用例 | 覆盖的流程 |
+|---|---|
+| `test_config_llm_and_env` | 配置（API Key 脱敏）、LLM 连通、pod 过滤（或 / 且 / 排除）、pod 内执行命令、环境信息脚本 |
+| `test_skill_edit_versions_and_rollback` | 新建 skill、编辑保存、内容不变不产生版本、版本差异、只回退中文、删除文件、非法路径 / 名称 |
+| `test_llm_sync_with_hunk_confirmation` | 待同步检测、LLM 生成建议、全部接受 / 手动改写 / 部分勾选 / 全不勾选、冲突检测、删除同步、全量检查 |
+| `test_deploy_to_pods_by_substring` | 按字符串匹配 pod 发布、内容一致性、reload 命令、打包脚本、只发中文、部分失败 / 全部失败 / 无匹配、自动保存工作区 |
+| `test_pull_skill_from_environment` | 从 pod 拉取并对比（一致 / 有差异 / 新增）、导入前自动保存未保存的修改、导入后回退、异常情况 |
+| `test_chat_headers_faults_and_conversation_id` | Header 与故障合并、5 种 conversation-id 获取方式、SSE、手动修正、接口不可达、pod 内故障命令及清理 |
+| `test_pull_and_download_llm_calls` | 全量 / 按 ID 拉取、去重、单文件下载与 pod 内容一致、按会话下载、打包 zip、越权路径、导入本地文件 |
+| `test_analysis_on_mock_logs` | 执行分析（菜单已隐藏）：版本推断、指标、步骤对齐、重试与报错识别、跳步检测、LLM 评审 |
+| `test_jobs_are_recorded` | 后台任务记录 |
+
+`mock/smoke_test.py` 是给人看的端到端演示脚本：先运行 `bash scripts/dev_mock.sh --reset`，再执行 `python3 mock/smoke_test.py`。

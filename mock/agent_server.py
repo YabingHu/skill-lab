@@ -35,7 +35,10 @@ def iso(t: float) -> str:
     return datetime.fromtimestamp(t, timezone.utc).isoformat()
 
 
-def pick_pod() -> Path | None:
+def pick_pod(name: str = "") -> Path | None:
+    """name 指定 pod（测试用，header x-mock-pod）；否则在名称含 agent 的 pod 里随机选一个。"""
+    if name:
+        return PODS / name if (PODS / name).is_dir() else None
     pods = sorted(p for p in PODS.iterdir() if p.is_dir() and "agent" in p.name) if PODS.is_dir() else []
     return random.choice(pods) if pods else None
 
@@ -153,7 +156,7 @@ async def chat(request: Request):
     question = body.get("query") or body.get("question") or ""
     faults = [f.strip() for f in request.headers.get("x-fault-inject", "").split(",") if f.strip()]
     conv = request.headers.get("x-conversation-id") or f"conv-{uuid.uuid4().hex[:12]}"
-    pod = pick_pod()
+    pod = pick_pod(request.headers.get("x-mock-pod", ""))
     if pod is None:
         return JSONResponse({"error": "no agent pod"}, status_code=503)
     records, answer = simulate(question, faults, conv, pod)
