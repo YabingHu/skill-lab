@@ -1,0 +1,101 @@
+# Skill Lab 配置示例：复制为 config.yaml 后按环境修改。
+# 只需要写和默认值不同的部分，完整默认值见 backend/app/config.py 的 DEFAULTS。
+# 相对路径都相对于本文件所在目录。
+#
+# LLM 配置建议写在 .env（或环境变量）里，优先级高于本文件：
+#   LLM_BASE_URL=http://10.0.0.8:8000/v1
+#   LLM_API_KEY=xxx
+#   LLM_MODEL=qwen2.5-72b-instruct
+
+data_dir: ./data                # 数据库、版本快照、拉取的日志都放这里
+
+skills:
+  root: ./workspace/skills      # skill 工作目录（网页上编辑的就是这里）
+  layout: "{lang}/{skill}"      # root/zh/<skill>、root/en/<skill>；也可写 "{skill}/{lang}"
+  langs: {zh: zh, en: en}       # 逻辑语言 -> 实际目录名
+  main_file: SKILL.md           # 步骤从这个文件解析
+
+llm:                            # 也可用 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL 覆盖
+  base_url: http://127.0.0.1:8000/v1
+  model: qwen2.5-32b-instruct
+  max_tokens: 8192              # 同步长文件时如果提示「输出被截断」就调大
+  concurrency: 2                # 同时翻译的文件数
+
+env:
+  namespace: default
+  # 命令模板：{xxx} 占位符的值会自动做 shell 转义。
+  # 如果要经过跳板机或者你们自己的脚本，直接改这几行即可，例如：
+  #   exec: "ssh jump kubectl exec -n {namespace} {pod} -- sh -c {cmd}"
+  commands:
+    list_pods: "kubectl get pods -n {namespace} --no-headers -o custom-columns=NAME:.metadata.name,STATUS:.status.phase"
+    exec: "kubectl exec -n {namespace} {pod} -- sh -c {cmd}"
+    cp_to: "kubectl cp {src} {namespace}/{pod}:{dst}"
+    env_info: "bash scripts/env_info.sh {namespace}"   # 环境信息脚本，输出原样展示
+
+deploy:
+  default_pod_filter: agent     # 发布页默认的 pod 过滤字符串
+  # 打包脚本：{staging} 是按 layout 组织好的待发布目录，脚本需要生成 {out}（tar.gz）
+  # 可用占位符：{skill} {version} {staging} {out} {langs}
+  package_cmd: "bash scripts/package_skill.sh {staging} {out}"
+  remote_tmp: /tmp
+  remote_dir: /opt/agent/skills # skill 在 pod 内的根目录
+  # 在 pod 内执行，可用占位符：{pkg} {remote_dir} {skill} {version}
+  install_cmd: "mkdir -p {remote_dir} && tar -xzf {pkg} -C {remote_dir} && rm -f {pkg}"
+  post_cmd: ""                  # 例如 "curl -s -XPOST localhost:8080/admin/reload-skills"
+  concurrency: 4
+
+chat:
+  endpoints:
+    - name: default
+      url: http://agent.example.com/api/chat
+      method: POST
+      headers: {Content-Type: application/json}
+      body: {query: "{question}", stream: false}     # {question} 会被替换成问题
+      timeout: 600
+      # 提取 conversation-id 的规则，按顺序尝试：header:<名> / json:<a.b.c> / regex:<正则，取第一个分组>
+      conversation_id_rules:
+        - header:x-conversation-id
+        - json:conversation_id
+        - json:data.conversation_id
+      # 如果环境支持调用方指定 conversation-id，填 header 名，每次提问自动生成 uuid 放进去
+      send_conversation_id_header: ""
+      # SSE 流式时拼接回答的字段
+      stream_text_paths: [choices.0.delta.content, delta, content, answer]
+
+  # 故障注入预设：可组合 headers / body（合并到请求体）/ pod_cmd（提问前在 pod 内执行）/ cleanup_cmd（提问后执行）
+  faults:
+    - name: tool_timeout
+      label: 工具调用超时
+      description: 让环境模拟工具超时
+      headers: {x-fault-inject: tool_timeout}
+    - name: tool_error
+      label: 工具返回错误
+      headers: {x-fault-inject: tool_error}
+    # - name: block_metrics
+    #   label: 监控接口不可达
+    #   pod_filter: agent
+    #   pod_cmd: "iptables -A OUTPUT -d monitor -j DROP"
+    #   cleanup_cmd: "iptables -D OUTPUT -d monitor -j DROP"
+
+logs:
+  pod_filter: agent
+  paths: [/var/log/agent, /opt/agent/logs]   # 在 pod 内查找日志的目录
+  glob: "llm-calls*.jsonl"
+  # 每行日志里 conversation-id 的位置（JSON 路径），取不到时会递归查找常见字段名
+  conversation_id_paths: [conversation_id, metadata.conversation_id]
+
+analysis:
+  default_lang: zh              # 默认按哪个语言的 SKILL.md 解析步骤（看环境实际加载哪个）
+  # 日志字段位置覆盖（JSON 路径）。默认自动识别 OpenAI / Anthropic / Responses 格式，识别不了再填。
+  fields:
+    start: ""                   # 例如 meta.start_ts
+    duration_ms: ""             # 例如 meta.cost_ms
+    messages: ""                # 例如 req.body.messages
+    response: ""                # 例如 resp.body
+    usage: ""
+  # 工具分类（按工具名正则，顺序生效）
+  tool_classes:
+    - {type: CLI, pattern: "bash|shell|exec|terminal|command|cmd|kubectl|ssh"}
+    - {type: API, pattern: "http|api|request|curl|fetch|rpc"}
+    - {type: FILE, pattern: "read|write|edit|file|glob|grep|ls"}
+  match_threshold: 0.18         # 启发式对齐的最低匹配得分
