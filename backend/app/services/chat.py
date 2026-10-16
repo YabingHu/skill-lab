@@ -11,6 +11,7 @@ from typing import Any
 import httpx
 
 from .. import shell
+from ..fault_injection import FaultEngine, FaultError
 from ..config import Config
 from ..db import DB, dumps, loads, now
 from .env import EnvService
@@ -87,6 +88,7 @@ class ChatService:
         self.cfg = cfg
         self.db = db
         self.env = env
+        self.fault_engine = FaultEngine()
 
     def endpoints(self) -> list[dict]:
         return self.cfg["chat"]["endpoints"]
@@ -147,6 +149,31 @@ class ChatService:
                 logs.append(f"[{f['name']}:{key}] {p['name']}: rc={r.rc} {r.brief(300)}")
 
     def ask(self, req: dict) -> dict:
+        """Run provider-backed faults around existing chat pipeline.
+
+        Only explicitly registered providers can be invoked here. Provider
+        recovery executes in finally even when the chat request fails.
+        """
+        names = set(req.get("faults") or [])
+        configured = [f for f in self.faults() if f["name"] in names and f.get("provider")]
+        if not configured:
+            return self._ask_legacy(req)
+        if len(configured) != 1:
+            raise ValueError("Only one provider-backed fault per chat is supported")
+        fault = configured[0]
+        if fault["provider"] not in self.fault_engine.providers:
+            raise ValueError("Fault provider is not registered")
+        run = self.fault_engine.prepare(fault["provider"], fault.get("parameters") or {})
+        try:
+            self.fault_engine.inject(run.id)
+            if run.status != "INJECTED":
+                raise FaultError("Fault verification failed")
+            return self._ask_legacy(req)
+        finally:
+            if run.status in ("INJECTED", "VERIFY_FAILED", "RECOVERY_REQUIRED"):
+                self.fault_engine.recover(run.id)
+
+    def _ask_legacy(self, req: dict) -> dict:
         built, ep, faults = self.build_request(req)
         fault_logs: list[str] = []
         self._run_fault_cmds(faults, "pod_cmd", req.get("pod_filter", ""), req.get("namespace"), fault_logs)
