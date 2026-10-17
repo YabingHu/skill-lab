@@ -9,6 +9,8 @@
 ```text
 bgp-router-id-conflict/
 ├── fault.ps1                # PowerShell 统一入口
+├── device.env.example.ps1   # 本地设备连接配置模板（可以提交）
+├── device.env.ps1           # 本地实际连接配置（禁止提交）
 ├── bgp_router_id.py         # 故障逻辑及 SSH 设备操作
 ├── SKILL.md                 # Skill 定义（如有）
 ├── USAGE.md                 # 本说明
@@ -33,7 +35,13 @@ $env:AUTH_MODEL = "password"
 # $env:KEY_FILENAME = "C:\path\to\private_key"
 ```
 
-建议通过安全凭据管理方式注入密码，不要把真实密码写进脚本或提交到 Git。统一脚本会在当前 PowerShell 进程中设置 `DEVICE_CONNECTOR_INTERACTIVE_OK=1`，**这只是已有 Python 脚本要求的开关，不代表 `[Y/N]` 应答已被验证**。
+你也可以在此目录复制配置模板：
+
+```powershell
+Copy-Item .\\bgp-router-id-conflict\\device.env.example.ps1 .\\bgp-router-id-conflict\\device.env.ps1
+```
+
+启动 `fault.ps1` 时会自动加载同目录的 `device.env.ps1`。该文件被 Git 忽略。建议通过安全凭据管理方式注入密码，不要把真实密码写进脚本或提交到 Git。统一脚本会在当前 PowerShell 进程中设置 `DEVICE_CONNECTOR_INTERACTIVE_OK=1`，**这只是已有 Python 脚本要求的开关，不代表 `[Y/N]` 应答已被验证**。
 
 ## 3. 统一调用
 
