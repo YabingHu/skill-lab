@@ -8,3 +8,7 @@ frontend/dist/
 /workspace/
 .venv/
 /.env
+
+# Local network fault experiment credentials and state
+**/device.env.ps1
+**/fault_states/
