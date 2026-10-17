@@ -87,13 +87,37 @@ def inspect(host, expected_as):
 
 
 def backup_write(path, state):
+    """Create a unique backup, never overwrite an existing fault run.
+
+    Return the actual file path so every later state update uses the same file.
+    """
+    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+
+    if path.exists():
+        # Do not silently run another injection over a potentially active fault.
+        previous = json.loads(path.read_text(encoding='utf-8'))
+        unresolved = {
+            'apply_started', 'injected', 'verify_failed',
+            'recovery_started', 'recovery_failed',
+        }
+        if previous.get('host') == state.get('host') and previous.get('status') in unresolved:
+            raise RuntimeError(
+                f'已有未确认恢复的故障记录: {path} ({previous.get("status")})；'
+                '先核对设备并恢复，再继续注入'
+            )
+        stamp = dt.datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+        path = path.with_name(f'{path.stem}_{stamp}{path.suffix}')
+
+    # Exclusive create also avoids accidental overwrites on timestamp collisions.
     with path.open('x', encoding='utf-8') as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
     try:
         path.chmod(0o600)
     except OSError:
         pass
+    logger.info('备份状态文件: %s', path)
+    return path
 
 
 def update_state(path, state):
@@ -101,14 +125,16 @@ def update_state(path, state):
 
 
 def confirm(args, msg):
-    print(msg)
+    logger.warning(msg)
     if not args.apply:
-        print('预演模式：未修改配置；需加 --apply')
+        logger.info('预演模式：未修改配置；需加 --apply')
         return False
     if os.getenv('DEVICE_CONNECTOR_INTERACTIVE_OK') != '1':
-        raise RuntimeError('写入操作要求先验证 execute_commands 保持配置视图并自动处理 [Y/N] 确认，之后设置 DEVICE_CONNECTOR_INTERACTIVE_OK=1')
-    if input(f'输入本端设备IP {args.host} 确认: ').strip() != args.host:
-        raise RuntimeError('人工确认失败')
+        raise RuntimeError(
+            '写入操作要求事先验证 execute_commands 支持会话保持和 [Y/N] 应答，'
+            '并设置 DEVICE_CONNECTOR_INTERACTIVE_OK=1'
+        )
+    logger.info('已启用 --apply，跳过人工输入确认')
     return True
 
 
@@ -153,7 +179,7 @@ def inject(args):
              'host': args.host, 'asn': args.asn, 'peer': peer, 'original_router_id': old,
              'injected_router_id': target_rid, 'peer_subnet': args.peer_subnet,
              'before_bgp_peer': before, 'peer_before': peer_out, 'original_bgp_config': cfg_output}
-    backup_write(path, state)
+    path = backup_write(path, state)
     print(f'原 Router-ID={old}，对端 {peer} Router-ID={target_rid}，备份文件={path}')
     if not confirm(args, '修改 Router-ID 将重置本端 BGP 邻居，可能影响业务。'):
         return
