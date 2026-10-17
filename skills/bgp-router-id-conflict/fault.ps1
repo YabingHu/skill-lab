@@ -22,8 +22,12 @@ param(
 $ErrorActionPreference = 'Stop'
 $pyScript = Join-Path $PSScriptRoot 'bgp_router_id.py'
 $stateDir = Join-Path $PSScriptRoot 'fault_states'
+$configFile = Join-Path $PSScriptRoot 'device.env.ps1'
+if (Test-Path -LiteralPath $configFile -PathType Leaf) {
+    . $configFile
+}
 if (-not (Test-Path -LiteralPath $pyScript -PathType Leaf)) { throw "Missing Python script: $pyScript" }
-if (-not $env:SSH_USERNAME) { throw 'Please set SSH_USERNAME and SSH_PASSWORD (or SSH key variables) in your environment.' }
+if (-not $env:SSH_USERNAME) { throw 'SSH_USERNAME is missing. Configure device.env.ps1 locally or set the environment variables.' }
 if (-not (Test-Path -LiteralPath $stateDir)) { New-Item -ItemType Directory -Path $stateDir | Out-Null }
 
 # A flag required by the existing Python CLI; it is NOT proof that the connector's
