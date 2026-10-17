@@ -19,38 +19,32 @@ bgp-router-id-conflict/
 
 `fault.ps1` 会以自身所在目录查找 Python 脚本，不要求在特定工作目录执行。`fault_states/` 由脚本自动创建。
 
-## 2. 环境准备（首次使用）
+## 2. 首次配置（只需要做一次）
 
-- Windows PowerShell 5.1 或 PowerShell 7；可调用 `python` 的 Python 环境。
-- Python 可导入 `device_connector`，其中提供 `SSHConfig` 和 `execute_commands`。
-- 运行主机可以通过 SSH 访问**授权实验设备**。
-- 按实际连接方式设置 SSH 环境变量（示例仅作用于当前 PowerShell 窗口）：
+以下命令从 **skill-lab 仓库根目录**执行（Windows PowerShell 5.1 / 7）：
 
 ```powershell
-$env:SSH_USERNAME = "<实验账号>"
-$env:SSH_PASSWORD = "<从安全渠道获取的密码>"
-$env:SSH_PORT = "22"
-$env:AUTH_MODEL = "password"
-# 若采用密钥认证，按 device_connector 的要求设置：
-# $env:KEY_FILENAME = "C:\path\to\private_key"
+git pull origin feature/bgp-router-id-conflict
+Copy-Item .\skills\bgp-router-id-conflict\device.env.example.ps1 .\skills\bgp-router-id-conflict\device.env.ps1
 ```
 
-你也可以在此目录复制配置模板：
+编辑本地的 `skills/bgp-router-id-conflict/device.env.ps1`，至少配置 `SSH_USERNAME`、认证方式及相应凭据。模板已有 `SSH_PORT`、`AUTH_MODEL`、`KEY_FILENAME` 示例。
 
-```powershell
-Copy-Item .\\bgp-router-id-conflict\\device.env.example.ps1 .\\bgp-router-id-conflict\\device.env.ps1
-```
+- 需有可调用的 Python 环境，并能导入 `device_connector`（提供 `SSHConfig` 和 `execute_commands`）。
+- 密码建议由凭据管理工具提供；不要把真实密码写入 Git。实际的 `device.env.ps1` 和 `fault_states/` 已加入 `.gitignore`。
+- `fault.ps1` 自动加载与它同级的 `device.env.ps1`。如果不创建该文件，也可以使用当前 PowerShell 会话已有的 `SSH_*` 环境变量。
+- `fault.ps1` 会自动设置 `DEVICE_CONNECTOR_INTERACTIVE_OK=1`，无需每次手工输入。不过**这只是开关，不代表设备交互已通过验证**；底层连接器曾出现多发送一个 `y` 的错误，应先修复并验证。
 
-启动 `fault.ps1` 时会自动加载同目录的 `device.env.ps1`。该文件被 Git 忽略。建议通过安全凭据管理方式注入密码，不要把真实密码写进脚本或提交到 Git。统一脚本会在当前 PowerShell 进程中设置 `DEVICE_CONNECTOR_INTERACTIVE_OK=1`，**这只是已有 Python 脚本要求的开关，不代表 `[Y/N]` 应答已被验证**。
+**重要：** 统一入口当前会自动带 `--apply`，不是预演。仅限经授权的隔离实验环境，并在确认设备备份及恢复能力后使用。
 
-## 3. 统一调用
+## 3. 日常操作：只运行一条命令
 
-以下 IP `192.0.2.167`、`192.0.2.166` 是文档示例地址，运行时替换成你的实验设备地址。
+在 **skill-lab 仓库根目录**执行下述命令。以下 IP 为 RFC 5737 文档示例地址，使用时替换为经过授权的实验设备地址。
 
 ### 注入
 
 ```powershell
-.\bgp-router-id-conflict\fault.ps1 -Action inject -HostIp 192.0.2.167 -Peer 192.0.2.166
+.\skills\bgp-router-id-conflict\fault.ps1 -Action inject -HostIp 192.0.2.167 -Peer 192.0.2.166
 ```
 
 自动完成：检查本端 Peer 和 AS、登录 Peer 获取对端 Router-ID、备份配置、生成**唯一** JSON 状态文件、在开启 `--apply` 的路径中执行变更、读回本端 Router-ID。默认 ASN 为 `100`。`fault.ps1` 的注入命令会直接启用 `--apply`，**不是 Dry Run**。
@@ -58,13 +52,13 @@ Copy-Item .\\bgp-router-id-conflict\\device.env.example.ps1 .\\bgp-router-id-con
 ### 恢复
 
 ```powershell
-.\bgp-router-id-conflict\fault.ps1 -Action recover -HostIp 192.0.2.167
+.\skills\bgp-router-id-conflict\fault.ps1 -Action recover -HostIp 192.0.2.167
 ```
 
-统一脚本会尝试在 `fault_states/` 下找到该设备、该 ASN **恰好一个**未完成恢复的状态文件。若没有匹配或存在多个匹配，会报错，要求显式指定文件。
+统一脚本会尝试在同级 `fault_states/` 下找到该设备、该 ASN **恰好一个**未完成恢复的状态文件。若没有匹配或存在多个匹配，会报错，要求显式指定文件。
 
 ```powershell
-.\bgp-router-id-conflict\fault.ps1 -Action recover -HostIp 192.0.2.167 -StateFile ".\bgp-router-id-conflict\fault_states\bgp_192.0.2.167_示例标识.json"
+.\skills\bgp-router-id-conflict\fault.ps1 -Action recover -HostIp 192.0.2.167 -StateFile ".\bgp-router-id-conflict\fault_states\bgp_192.0.2.167_示例标识.json"
 ```
 
 实际恢复时应复制**注入输出打印的完整状态文件路径**，不要直接使用上述示例文件名。
@@ -84,7 +78,7 @@ Copy-Item .\\bgp-router-id-conflict\\device.env.example.ps1 .\\bgp-router-id-con
 指定 AS 与网段的示例：
 
 ```powershell
-.\bgp-router-id-conflict\fault.ps1 -Action inject -HostIp 192.0.2.167 -Peer 192.0.2.166 -Asn 100 -PeerSubnet "192.0.2.0/24"
+.\skills\bgp-router-id-conflict\fault.ps1 -Action inject -HostIp 192.0.2.167 -Peer 192.0.2.166 -Asn 100 -PeerSubnet "192.0.2.0/24"
 ```
 
 ## 5. 状态文件及恢复关系
@@ -97,7 +91,7 @@ Copy-Item .\\bgp-router-id-conflict\\device.env.example.ps1 .\\bgp-router-id-con
 
 ## 6. 常见问题
 
-**PowerShell 提示 `export` 不是命令**：PowerShell 设置环境变量使用 `$env:NAME = "value"`，不是 Bash 的 `export`。
+**提示 SSH_USERNAME 未配置**：确认已经创建并填写同目录的 `device.env.ps1`，或在 PowerShell 中用 `$env:SSH_USERNAME = "..."` 设置；不是 Bash 的 `export`。
 
 **提示 `Unrecognized command` 且回显中有多余的 `y`**：底层 `device_connector.execute_commands` 可能在 `[Y/N]` 已确认后又发送了额外字符。修复其交互确认逻辑；不要简单屏蔽所有 `Error:` 回显。
 
